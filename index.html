@@ -352,10 +352,14 @@
       ctx.strokeStyle = '#00ff88';
       ctx.lineWidth = 3;
       ctx.lineCap = 'round';
-      const edges = poseDetection.util.getKeypointPairs(poseDetection.SupportedModels.MoveNet);
+      const util = poseDetection.util;
+      const edges = util.getKeypointConnections
+        ? Array.from(util.getKeypointConnections(poseDetection.SupportedModels.MoveNet))
+        : util.getKeypointPairs(poseDetection.SupportedModels.MoveNet);
 
       ctx.beginPath();
-      edges.forEach(([aIndex, bIndex]) => {
+      edges.forEach((pair) => {
+        const [aIndex, bIndex] = Array.isArray(pair) ? pair : [pair[0], pair[1]];
         const a = keypoints[aIndex];
         const b = keypoints[bIndex];
         if (a.score > 0.3 && b.score > 0.3) {
