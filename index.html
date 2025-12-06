@@ -359,15 +359,10 @@
       ctx.strokeStyle = '#00ff88';
       ctx.lineWidth = 3;
       ctx.lineCap = 'round';
-      let edges = MOVENET_EDGES;
-      const util = poseDetection.util || {};
-      if (typeof util.getKeypointConnections === 'function') {
-        edges = Array.from(util.getKeypointConnections(poseDetection.SupportedModels.MoveNet));
-      }
+      const edges = MOVENET_EDGES;
 
       ctx.beginPath();
-      edges.forEach((pair) => {
-        const [aIndex, bIndex] = Array.isArray(pair) ? pair : [pair[0], pair[1]];
+      edges.forEach(([aIndex, bIndex]) => {
         const a = keypoints[aIndex];
         const b = keypoints[bIndex];
         if (a.score > 0.3 && b.score > 0.3) {
