@@ -126,7 +126,7 @@
       gap: 10px;
       pointer-events: auto;
     }
-    #tweet-btn {
+    .share-btn {
       border: 2px solid #00b7ff;
       background: rgba(0, 45, 80, 0.7);
       color: #9fe6ff;
@@ -138,7 +138,7 @@
       box-shadow: 0 0 8px rgba(0, 183, 255, 0.5);
       transition: background 0.2s ease, transform 0.15s ease;
     }
-    #tweet-btn:hover {
+    .share-btn:hover {
       background: rgba(0, 183, 255, 0.3);
       transform: translateY(-1px);
     }
@@ -150,7 +150,8 @@
     <canvas id="overlay" width="640" height="480"></canvas>
     <div id="frame-overlay"></div>
     <div id="share-bar">
-      <button id="tweet-btn">SEND TO TWITTER</button>
+      <button id="camera-btn" class="share-btn">SWITCH CAMERA</button>
+      <button id="tweet-btn" class="share-btn">SEND TO TWITTER</button>
     </div>
     <div id="hud">
       <div class="label">SCOUTER ONLINE</div>
@@ -173,6 +174,8 @@
     const blinkIndicator = document.getElementById('blink-indicator');
     const frameOverlay = document.getElementById('frame-overlay');
     const specialMoveEl = document.getElementById('special-move');
+    const tweetBtn = document.getElementById('tweet-btn');
+    const cameraBtn = document.getElementById('camera-btn');
 
     let detector;
     let lastScore = 0;
@@ -181,12 +184,29 @@
     let lockAudioCooldown = 0;
     let currentMove = 'NONE';
     let moveCooldown = 0;
-    const tweetBtn = document.getElementById('tweet-btn');
+    let currentStream;
+    let useEnvironment = false;
 
     // 日本語コメント: カメラを起動してストリームをvideoに接続
     async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
-      video.srcObject = stream;
+      if (currentStream) currentStream.getTracks().forEach(track => track.stop());
+      const constraints = {
+        video: {
+          width: 640,
+          height: 480,
+          facingMode: useEnvironment ? { exact: 'environment' } : 'user'
+        }
+      };
+      try {
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        if (useEnvironment) {
+          useEnvironment = false;
+          return setupCamera();
+        }
+        throw err;
+      }
+      video.srcObject = currentStream;
       await new Promise((resolve) => video.onloadedmetadata = resolve);
     }
 
@@ -418,6 +438,7 @@
         await loadDetector();
         statusEl.textContent = 'SCANNING...';
         setupShare();
+        setupCameraSwitch();
         renderLoop();
       } catch (err) {
         console.error(err);
@@ -433,6 +454,22 @@
         const url = encodeURIComponent('https://kg-ninja.github.io/DGscouter/');
         const tweetUrl = `https://twitter.com/intent/tweet?text=${text}&url=${url}`;
         window.open(tweetUrl, '_blank');
+      });
+    }
+
+    // 日本語コメント: 背面/前面カメラ切替ボタン
+    function setupCameraSwitch() {
+      cameraBtn.addEventListener('click', async () => {
+        useEnvironment = !useEnvironment;
+        cameraBtn.textContent = useEnvironment ? 'USE FRONT CAMERA' : 'SWITCH CAMERA';
+        statusEl.textContent = useEnvironment ? 'ENV CAMERA...' : 'FRONT CAMERA...';
+        try {
+          await setupCamera();
+          statusEl.textContent = 'SCANNING...';
+        } catch (err) {
+          statusEl.textContent = 'CAMERA ERROR';
+          console.error(err);
+        }
       });
     }
 
