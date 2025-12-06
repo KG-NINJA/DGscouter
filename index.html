@@ -165,6 +165,25 @@
       20% { opacity: 1; }
       100% { opacity: 0; transform: translate(-50%, -80px) scale(1.2); }
     }
+    #genkidama-overlay {
+      position: absolute;
+      inset: -20px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,170,0.35) 0%, rgba(0,0,0,0) 60%);
+      mix-blend-mode: screen;
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.6);
+    }
+    #genkidama-overlay.active {
+      animation: genkidamaPulse 1.2s ease-in-out infinite;
+      opacity: 1;
+    }
+    @keyframes genkidamaPulse {
+      0% { transform: scale(0.6); opacity: 0.2; }
+      50% { transform: scale(1); opacity: 0.5; }
+      100% { transform: scale(0.6); opacity: 0.2; }
+    }
   </style>
 </head>
 <body>
@@ -184,6 +203,7 @@
     <div id="blink-indicator"></div>
     <div id="special-move"></div>
     <div id="rise-layer"></div>
+    <div id="genkidama-overlay"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.13.0/dist/tf.min.js"></script>
@@ -201,6 +221,7 @@
     const tweetBtn = document.getElementById('tweet-btn');
     const cameraBtn = document.getElementById('camera-btn');
     const riseLayer = document.getElementById('rise-layer');
+    const genkidamaOverlay = document.getElementById('genkidama-overlay');
 
     const MOVENET_EDGES = [
       [0,1],[0,2],[1,3],[2,4], // 頭部
@@ -209,6 +230,8 @@
       [11,13],[13,15],[12,14],[14,16] // 脚
     ];
 
+    const GENKIDAMA_HOLD_MS = 60000;
+    const GENKIDAMA_SCORE = 10000000;
     const IDLE_SCORE = 3;
 
     let detector;
@@ -223,6 +246,8 @@
     let lastPoseTime = performance.now();
     const LOST_TIMEOUT = 2500; // 日本語コメント: 一定時間ポーズ未検知なら戦闘力を3にする
     let lastFinalScore = IDLE_SCORE;
+    let raiseStartTime = null;
+    let genkidamaActive = false;
 
     updateDisplay(IDLE_SCORE); // 日本語コメント: 初期状態でも数値を表示
 
@@ -326,12 +351,19 @@
 
     // 日本語コメント: 表示更新とエフェクト同期
     function updateDisplay(score) {
-      battlePowerEl.textContent = `BATTLE POWER: ${score.toString().padStart(5, '0')}`;
-      const scale = 1 + Math.min(score / 530000, 0.3);
+      if (genkidamaActive) {
+        battlePowerEl.textContent = 'BATTLE POWER: >10000000 (MEASUREMENT ERROR)';
+      } else {
+        battlePowerEl.textContent = `BATTLE POWER: ${score.toString().padStart(5, '0')}`;
+      }
+      const scale = genkidamaActive ? 1.4 : 1 + Math.min(score / 530000, 0.3);
       battlePowerEl.style.transform = `scale(${scale})`;
-      const highPower = score > 500000;
+      const highPower = !genkidamaActive && score > 500000;
       battlePowerEl.classList.toggle('flash', highPower);
-      blinkIndicator.classList.toggle('active', highPower);
+      blinkIndicator.classList.toggle('active', highPower || genkidamaActive);
+      battlePowerEl.style.textShadow = genkidamaActive
+        ? '0 0 20px #fff29c, 0 0 40px #ffdd6e'
+        : '';
       if (highPower && !flashing) {
         flashing = true;
         playBeep();
@@ -389,17 +421,25 @@
         lastPoseTime = performance.now();
         triggerLockAnimation();
         drawKeypoints(poses[0].keypoints);
-        const score = computeBattlePower(poses[0].keypoints);
+        const score = genkidamaActive ? GENKIDAMA_SCORE : computeBattlePower(poses[0].keypoints);
         animateCounter(score);
-        statusEl.textContent = 'TARGET LOCKED';
+        if (genkidamaActive) {
+          statusEl.textContent = 'MEASUREMENT OVERFLOW';
+        } else if (!raiseStartTime) {
+          statusEl.textContent = 'TARGET LOCKED';
+        }
         detectSpecialMove(poses[0].keypoints, score);
       } else {
         frameOverlay.classList.remove('active');
         statusEl.textContent = 'SEARCHING...';
-        specialMoveEl.classList.remove('active');
-        specialMoveEl.textContent = '';
-        if (performance.now() - lastPoseTime > LOST_TIMEOUT && lastScore !== 3) {
-          animateCounter(3);
+        if (!genkidamaActive) {
+          specialMoveEl.classList.remove('active');
+          specialMoveEl.textContent = '';
+        }
+        resetGenkidama(true);
+        raiseStartTime = null;
+        if (performance.now() - lastPoseTime > LOST_TIMEOUT && lastScore !== IDLE_SCORE) {
+          animateCounter(IDLE_SCORE);
         }
       }
       requestAnimationFrame(renderLoop);
@@ -420,7 +460,6 @@
     // 日本語コメント: ポーズ別必殺技演出を検知
     function detectSpecialMove(keypoints, score) {
       const now = performance.now();
-      if (now - moveCooldown < 800) return;
       const leftWrist = keypoints.find(kp => kp.name === 'left_wrist');
       const rightWrist = keypoints.find(kp => kp.name === 'right_wrist');
       const leftShoulder = keypoints.find(kp => kp.name === 'left_shoulder');
@@ -430,6 +469,15 @@
 
       const armsRaised = leftWrist && rightWrist && leftShoulder && rightShoulder &&
         leftWrist.y < leftShoulder.y - 20 && rightWrist.y < rightShoulder.y - 20;
+
+      handleGenkidamaCharge(armsRaised);
+      if (genkidamaActive) {
+        specialMoveEl.textContent = 'GENKIDAMA MAX!!';
+        specialMoveEl.classList.add('active');
+        return;
+      }
+
+      if (now - moveCooldown < 800) return;
 
       const guardPose = leftElbow && rightElbow && leftShoulder && rightShoulder &&
         Math.abs(leftElbow.x - rightElbow.x) < 80 &&
@@ -460,6 +508,65 @@
       }
     }
 
+    // 日本語コメント: 元気玉チャージを監視
+    function handleGenkidamaCharge(armsRaised) {
+      const now = performance.now();
+      if (genkidamaActive) {
+        if (!armsRaised) resetGenkidama();
+        return;
+      }
+      if (armsRaised) {
+        if (!raiseStartTime) {
+          raiseStartTime = now;
+          statusEl.textContent = 'GENKIDAMA CHARGING...';
+        }
+        const elapsed = now - raiseStartTime;
+        if (elapsed >= GENKIDAMA_HOLD_MS) {
+          triggerGenkidama();
+        } else {
+          const percent = Math.min(100, Math.floor((elapsed / GENKIDAMA_HOLD_MS) * 100));
+          statusEl.textContent = `GENKIDAMA ${percent}%`;
+        }
+      } else if (raiseStartTime) {
+        raiseStartTime = null;
+        statusEl.textContent = 'TARGET LOCKED';
+      }
+    }
+
+    // 日本語コメント: 元気玉を発動させる
+    function triggerGenkidama() {
+      genkidamaActive = true;
+      raiseStartTime = null;
+      genkidamaOverlay.classList.add('active');
+      frameOverlay.classList.add('active');
+      specialMoveEl.textContent = 'GENKIDAMA MAX!!';
+      specialMoveEl.classList.add('active');
+      statusEl.textContent = 'MEASUREMENT OVERFLOW';
+      playGenkidamaChord();
+      animateCounter(GENKIDAMA_SCORE);
+    }
+
+    // 日本語コメント: 元気玉状態を解除
+    function resetGenkidama(keepStatus = false) {
+      if (!genkidamaActive) {
+        genkidamaOverlay.classList.remove('active');
+        return;
+      }
+      genkidamaActive = false;
+      genkidamaOverlay.classList.remove('active');
+      specialMoveEl.classList.remove('active');
+      specialMoveEl.textContent = '';
+      if (!keepStatus) statusEl.textContent = 'TARGET LOCKED';
+    }
+
+    // 日本語コメント: 元気玉用の電子音シーケンス
+    function playGenkidamaChord() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      [1.2, 1.6, 2.1].forEach((mult, idx) => {
+        setTimeout(() => playBeep(mult), idx * 200);
+      });
+    }
+
     // 日本語コメント: スコア増加時の上昇アニメーションを表示
     function spawnRise(delta) {
       if (delta < 10) return;
@@ -472,6 +579,7 @@
 
     // 日本語コメント: 必殺技演出時のエフェクトと電子音
     function burstEffect(score) {
+      if (genkidamaActive) return;
       frameOverlay.classList.add('active');
       if (!audioCtx) playBeep();
       setTimeout(() => playBeep(1.6), 120);
@@ -480,7 +588,9 @@
       canvas.style.filter = 'drop-shadow(0 0 12px #53ffbd)';
       setTimeout(() => {
         canvas.style.filter = '';
-        specialMoveEl.classList.remove('active');
+        if (!genkidamaActive) {
+          specialMoveEl.classList.remove('active');
+        }
       }, 1400);
       if (score < 450000) {
         lastScore = Math.max(lastScore, score + 20000);
