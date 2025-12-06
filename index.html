@@ -144,6 +144,27 @@
       background: rgba(0, 183, 255, 0.3);
       transform: translateY(-1px);
     }
+    #rise-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .rise-text {
+      position: absolute;
+      left: 50%;
+      top: 65%;
+      transform: translate(-50%, 0);
+      font-size: 28px;
+      color: #fffd8a;
+      text-shadow: 0 0 10px #ffed4a;
+      animation: riseUp 1s ease-out forwards;
+    }
+    @keyframes riseUp {
+      0% { opacity: 0; transform: translate(-50%, 10px) scale(0.8); }
+      20% { opacity: 1; }
+      100% { opacity: 0; transform: translate(-50%, -80px) scale(1.2); }
+    }
   </style>
 </head>
 <body>
@@ -162,6 +183,7 @@
     </div>
     <div id="blink-indicator"></div>
     <div id="special-move"></div>
+    <div id="rise-layer"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.13.0/dist/tf.min.js"></script>
@@ -178,6 +200,7 @@
     const specialMoveEl = document.getElementById('special-move');
     const tweetBtn = document.getElementById('tweet-btn');
     const cameraBtn = document.getElementById('camera-btn');
+    const riseLayer = document.getElementById('rise-layer');
 
     let detector;
     let lastScore = 0;
@@ -188,6 +211,9 @@
     let moveCooldown = 0;
     let currentStream;
     let useEnvironment = false;
+    let lastPoseTime = performance.now();
+    const LOST_TIMEOUT = 2500; // 日本語コメント: 一定時間ポーズ未検知なら戦闘力を3にする
+    let lastFinalScore = 0;
 
     // 日本語コメント: カメラを起動してストリームをvideoに接続
     async function setupCamera() {
@@ -273,6 +299,10 @@
         if (currentFrame >= frames) {
           lastScore = target;
           updateDisplay(target);
+          if (target > lastFinalScore) {
+            spawnRise(target - lastFinalScore);
+          }
+          lastFinalScore = target;
           return;
         }
         lastScore += delta;
@@ -345,6 +375,7 @@
     async function renderLoop() {
       const poses = await detector.estimatePoses(video, { maxPoses: 1, flipHorizontal: false });
       if (poses[0]) {
+        lastPoseTime = performance.now();
         triggerLockAnimation();
         drawKeypoints(poses[0].keypoints);
         const score = computeBattlePower(poses[0].keypoints);
@@ -356,6 +387,9 @@
         statusEl.textContent = 'SEARCHING...';
         specialMoveEl.classList.remove('active');
         specialMoveEl.textContent = '';
+        if (performance.now() - lastPoseTime > LOST_TIMEOUT && lastScore !== 3) {
+          animateCounter(3);
+        }
       }
       requestAnimationFrame(renderLoop);
     }
@@ -413,6 +447,16 @@
         currentMove = 'NONE';
         specialMoveEl.classList.remove('active');
       }
+    }
+
+    // 日本語コメント: スコア増加時の上昇アニメーションを表示
+    function spawnRise(delta) {
+      if (delta < 10) return;
+      const rise = document.createElement('div');
+      rise.className = 'rise-text';
+      rise.textContent = `+${delta}`;
+      riseLayer.appendChild(rise);
+      setTimeout(() => rise.remove(), 1000);
     }
 
     // 日本語コメント: 必殺技演出時のエフェクトと電子音
