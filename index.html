@@ -202,8 +202,10 @@
     const cameraBtn = document.getElementById('camera-btn');
     const riseLayer = document.getElementById('rise-layer');
 
+    const IDLE_SCORE = 3;
+
     let detector;
-    let lastScore = 0;
+    let lastScore = IDLE_SCORE;
     let audioCtx;
     let flashing = false;
     let lockAudioCooldown = 0;
@@ -213,7 +215,9 @@
     let useEnvironment = false;
     let lastPoseTime = performance.now();
     const LOST_TIMEOUT = 2500; // 日本語コメント: 一定時間ポーズ未検知なら戦闘力を3にする
-    let lastFinalScore = 0;
+    let lastFinalScore = IDLE_SCORE;
+
+    updateDisplay(IDLE_SCORE); // 日本語コメント: 初期状態でも数値を表示
 
     // 日本語コメント: カメラを起動してストリームをvideoに接続
     async function setupCamera() {
